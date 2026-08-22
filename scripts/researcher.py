@@ -21,8 +21,6 @@ import os
 import json
 import re
 
-from openai import OpenAI
-
 from common import (
     DRAFT_ENTRY_FILENAME,
     RAW_SOURCES_FILENAME,
@@ -31,9 +29,8 @@ from common import (
     require_artwork_name,
     write_text,
 )
+from llm import NVIDIA_MODEL, complete, strip_reasoning  # noqa: F401 (re-exported for tests)
 
-# Both overridable from the workflow so the model can be swapped without a code change.
-NVIDIA_MODEL = os.environ.get("NVIDIA_MODEL", "nvidia/nemotron-3.5-lightning-30b-a3b")
 MAX_TOKENS = int(os.environ.get("RESEARCHER_MAX_TOKENS", "8192"))
 
 REQUIRED_SECTIONS = [
@@ -88,62 +85,12 @@ Produce the entry in exactly this structure, using Markdown headers:
 """
 
 
-def strip_reasoning(text: str) -> str:
-    """
-    Remove chain-of-thought that reasoning models emit inside the content field.
-
-    Handles both explicit <think>...</think> delimiters and the unfenced
-    "Here's a thinking process:" preamble, by cutting everything before the
-    first Markdown H1 when one is present.
-    """
-    if not text:
-        return ""
-
-    # Explicit reasoning delimiters, including an unclosed trailing block.
-    cleaned = re.sub(r"<(think|thinking|reasoning)>.*?</\1>", "", text, flags=re.DOTALL | re.IGNORECASE)
-    cleaned = re.sub(r"<(think|thinking|reasoning)>.*\Z", "", cleaned, flags=re.DOTALL | re.IGNORECASE)
-
-    # Unfenced preamble: the real entry starts at the first H1.
-    match = re.search(r"^# .+", cleaned, flags=re.MULTILINE)
-    if match:
-        cleaned = cleaned[match.start():]
-
-    return cleaned.strip()
-
 
 def missing_sections(entry_text: str) -> list:
     """Which of the mandated headers the model failed to emit."""
     normalised = re.sub(r"[ \t]+", " ", entry_text)
     return [s for s in REQUIRED_SECTIONS if s.lower() not in normalised.lower()]
 
-
-def call_nvidia_api(source_bundle: dict, api_key: str) -> tuple[str, str]:
-    """Returns (content, finish_reason)."""
-    user_content = (
-        "Here is the retrieved source bundle for this artwork. "
-        "Write the archive entry following the system instructions exactly.\n\n"
-        + json.dumps(source_bundle, indent=2, ensure_ascii=False)
-    )
-
-    client = OpenAI(
-        base_url="https://integrate.api.nvidia.com/v1",
-        api_key=api_key,
-    )
-
-    completion = client.chat.completions.create(
-        model=NVIDIA_MODEL,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_content},
-        ],
-        temperature=0.2,
-        top_p=0.95,
-        max_tokens=MAX_TOKENS,
-        stream=False,
-    )
-
-    choice = completion.choices[0]
-    return choice.message.content or "", (choice.finish_reason or "")
 
 
 def main():
@@ -162,16 +109,24 @@ def main():
     if not source_bundle.get("sources"):
         print("WARNING: source bundle is empty. The model will produce a low-confidence entry.")
 
+    user_content = (
+        "Here is the retrieved source bundle for this artwork. "
+        "Write the archive entry following the system instructions exactly.\n\n"
+        + json.dumps(source_bundle, indent=2, ensure_ascii=False)
+    )
+
     print(f"Calling NVIDIA API ({NVIDIA_MODEL}, max_tokens={MAX_TOKENS}) for '{artwork_name}'...")
-    raw_content, finish_reason = call_nvidia_api(source_bundle, api_key)
-    entry_text = strip_reasoning(raw_content)
+    result = complete(SYSTEM_PROMPT, user_content, MAX_TOKENS, temperature=0.2)
+    entry_text = strip_reasoning(result["content"])
 
     # Fail loudly rather than committing a truncated or malformed draft.
-    if finish_reason == "length":
+    if result["finish_reason"] == "length":
         raise SystemExit(
-            "ERROR: the model hit the token limit before finishing the entry "
-            f"(finish_reason=length, max_tokens={MAX_TOKENS}).\n"
-            "Raise RESEARCHER_MAX_TOKENS or switch NVIDIA_MODEL to a non-reasoning model."
+            "ERROR: the model ran out of tokens before finishing the entry "
+            f"(retried up to {result['budget']} tokens).\n"
+            + ("The model kept emitting reasoning. Set ENABLE_THINKING=false (default) or "
+               "switch NVIDIA_MODEL to a non-reasoning model.\n" if result["saw_reasoning"] else "")
+            + "You can also raise RESEARCHER_MAX_TOKENS."
         )
 
     if not entry_text:

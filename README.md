@@ -34,17 +34,20 @@ The model is read from the `NVIDIA_MODEL` environment variable, defaulting to th
 value in `scripts/researcher.py`. Check it matches the exact model string shown on
 your NVIDIA `/models` catalog page.
 
-**Important:** if you pick a reasoning model, it may emit its chain-of-thought into
-the response body. Both AI stages strip that and then *verify* every required section
-is present, failing the run rather than committing a half-finished draft. If a run
-fails with `finish_reason=length`, raise `RESEARCHER_MAX_TOKENS` / `BRIEF_MAX_TOKENS`
-or switch to a non-reasoning model.
+**Important:** reasoning models on this endpoint default to thinking **on** and emit
+their chain-of-thought into the response body — the first live run spent an entire
+8192-token budget reasoning and never reached the entry. The pipeline therefore sends
+`enable_thinking: false` explicitly, strips any reasoning that still arrives, retries
+once at double the budget if the model runs out of tokens, and then *verifies* every
+required section is present — failing the run rather than committing a half-finished
+draft. Set `ENABLE_THINKING=true` to opt back in (budget roughly 3x the tokens).
 
 Tunable environment variables:
 
 | Variable | Default | Purpose |
 |---|---|---|
 | `NVIDIA_MODEL` | `nvidia/nemotron-3.5-lightning-30b-a3b` | Model for both AI stages |
+| `ENABLE_THINKING` | `false` | Let the model emit chain-of-thought before answering |
 | `RESEARCHER_MAX_TOKENS` | `8192` | Token budget for the archive entry |
 | `BRIEF_MAX_TOKENS` | `8192` | Token budget for the reel brief |
 | `REEL_RUNTIME_SECONDS` | `45` | Target runtime; drives the VO word budget |

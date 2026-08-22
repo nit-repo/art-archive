@@ -6,7 +6,9 @@ fixtures. Run with:  python -m unittest discover -s tests -v
 """
 
 import json
+import os
 import sys
+import types
 import tempfile
 import unittest
 from pathlib import Path
@@ -16,6 +18,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
 import common  # noqa: E402
+import llm  # noqa: E402
 import queue_manager  # noqa: E402
 import researcher  # noqa: E402
 import retriever  # noqa: E402
@@ -180,6 +183,98 @@ class TestReasoningStripping(unittest.TestCase):
             researcher.missing_sections(cleaned),
             "the reasoning-only draft must be reported as missing required sections",
         )
+
+
+class TestThinkingDisabled(unittest.TestCase):
+    """The first live run burned its whole budget reasoning; thinking must be off."""
+
+    def test_thinking_is_disabled_by_default(self):
+        with mock.patch.dict(os.environ, {}, clear=False):
+            body = llm.thinking_extra_body()
+        self.assertEqual(body, {"chat_template_kwargs": {"enable_thinking": llm.ENABLE_THINKING}})
+        self.assertFalse(llm.ENABLE_THINKING, "thinking must default to off")
+
+    def test_toggle_parsing(self):
+        for raw, expected in [("true", True), ("TRUE", True), ("1", True), ("yes", True),
+                              ("false", False), ("", False), ("no", False)]:
+            self.assertEqual(raw.strip().lower() in {"1", "true", "yes"}, expected, raw)
+
+
+class FakeChoice:
+    def __init__(self, content, finish_reason, reasoning=None):
+        self.message = types.SimpleNamespace(content=content, reasoning_content=reasoning)
+        self.finish_reason = finish_reason
+
+
+class TestCompleteRetry(unittest.TestCase):
+    """A length-capped response must be retried once at double the budget."""
+
+    def _client_factory(self, responses, calls):
+        def factory(**_kw):
+            def create(**kwargs):
+                calls.append(kwargs["max_tokens"])
+                return types.SimpleNamespace(choices=[responses[len(calls) - 1]])
+            return types.SimpleNamespace(
+                chat=types.SimpleNamespace(completions=types.SimpleNamespace(create=create))
+            )
+        return factory
+
+    def test_retries_once_with_doubled_budget(self):
+        calls = []
+        responses = [FakeChoice("partial", "length", reasoning="thinking..."),
+                     FakeChoice("# Done", "stop")]
+        with mock.patch.dict(os.environ, {"NVIDIA_API_KEY": "fake"}), \
+             mock.patch.object(llm, "OpenAI", self._client_factory(responses, calls)):
+            result = llm.complete("sys", "user", max_tokens=100, temperature=0.2)
+
+        self.assertEqual(calls, [100, 200], "should retry once at double the budget")
+        self.assertEqual(result["finish_reason"], "stop")
+        self.assertEqual(result["content"], "# Done")
+
+    def test_reports_reasoning_when_still_truncated(self):
+        calls = []
+        responses = [FakeChoice("a", "length", reasoning="think"),
+                     FakeChoice("b", "length", reasoning="think")]
+        with mock.patch.dict(os.environ, {"NVIDIA_API_KEY": "fake"}), \
+             mock.patch.object(llm, "OpenAI", self._client_factory(responses, calls)):
+            result = llm.complete("sys", "user", max_tokens=100, temperature=0.2)
+
+        self.assertEqual(result["finish_reason"], "length")
+        self.assertTrue(result["saw_reasoning"], "must flag that reasoning caused the overflow")
+        self.assertEqual(result["budget"], 200)
+
+    def test_falls_back_when_endpoint_rejects_thinking_toggle(self):
+        attempts = []
+
+        def factory(**_kw):
+            def create(**kwargs):
+                attempts.append("extra_body" in kwargs)
+                if "extra_body" in kwargs:
+                    raise ValueError("unrecognised parameter chat_template_kwargs")
+                return types.SimpleNamespace(choices=[FakeChoice("# Fine", "stop")])
+            return types.SimpleNamespace(
+                chat=types.SimpleNamespace(completions=types.SimpleNamespace(create=create))
+            )
+
+        with mock.patch.dict(os.environ, {"NVIDIA_API_KEY": "fake"}), \
+             mock.patch.object(llm, "OpenAI", factory):
+            result = llm.complete("sys", "user", max_tokens=100, temperature=0.2)
+
+        self.assertEqual(attempts, [True, False], "should retry without the passthrough")
+        self.assertEqual(result["content"], "# Fine")
+
+    def test_unrelated_errors_are_not_swallowed(self):
+        def factory(**_kw):
+            def create(**kwargs):
+                raise ValueError("401 invalid api key")
+            return types.SimpleNamespace(
+                chat=types.SimpleNamespace(completions=types.SimpleNamespace(create=create))
+            )
+
+        with mock.patch.dict(os.environ, {"NVIDIA_API_KEY": "fake"}), \
+             mock.patch.object(llm, "OpenAI", factory), \
+             self.assertRaises(ValueError):
+            llm.complete("sys", "user", max_tokens=100, temperature=0.2)
 
 
 class TestSectionValidation(unittest.TestCase):

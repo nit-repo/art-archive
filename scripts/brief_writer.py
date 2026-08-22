@@ -24,8 +24,6 @@ import os
 import json
 import re
 
-from openai import OpenAI
-
 from common import (
     CONTENT_BRIEF_FILENAME,
     DRAFT_ENTRY_FILENAME,
@@ -35,9 +33,8 @@ from common import (
     require_artwork_name,
     write_text,
 )
-from researcher import strip_reasoning
+from llm import NVIDIA_MODEL, complete, strip_reasoning
 
-NVIDIA_MODEL = os.environ.get("NVIDIA_MODEL", "nvidia/nemotron-3.5-lightning-30b-a3b")
 MAX_TOKENS = int(os.environ.get("BRIEF_MAX_TOKENS", "8192"))
 TARGET_RUNTIME_SECONDS = int(os.environ.get("REEL_RUNTIME_SECONDS", "45"))
 
@@ -125,22 +122,6 @@ def build_user_content(entry_text: str, images: list) -> str:
     )
 
 
-def call_nvidia_api(user_content: str, api_key: str) -> tuple[str, str]:
-    client = OpenAI(base_url="https://integrate.api.nvidia.com/v1", api_key=api_key)
-    completion = client.chat.completions.create(
-        model=NVIDIA_MODEL,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_content},
-        ],
-        temperature=0.7,  # higher than the researcher: this stage needs voice, not just recall
-        top_p=0.95,
-        max_tokens=MAX_TOKENS,
-        stream=False,
-    )
-    choice = completion.choices[0]
-    return choice.message.content or "", (choice.finish_reason or "")
-
 
 def main():
     artwork_name = require_artwork_name(sys.argv, "brief_writer.py")
@@ -164,13 +145,16 @@ def main():
     print(f"Calling NVIDIA API ({NVIDIA_MODEL}) for the reel brief on '{artwork_name}'...")
     print(f"  {len(images)} image asset(s) available, target runtime {TARGET_RUNTIME_SECONDS}s")
 
-    raw_content, finish_reason = call_nvidia_api(build_user_content(entry_text, images), api_key)
-    brief_text = strip_reasoning(raw_content)
+    # Higher temperature than the researcher: this stage needs voice, not just recall.
+    result = complete(
+        SYSTEM_PROMPT, build_user_content(entry_text, images), MAX_TOKENS, temperature=0.7
+    )
+    brief_text = strip_reasoning(result["content"])
 
-    if finish_reason == "length":
+    if result["finish_reason"] == "length":
         raise SystemExit(
-            "ERROR: the model hit the token limit before finishing the brief "
-            f"(finish_reason=length, max_tokens={MAX_TOKENS}). Raise BRIEF_MAX_TOKENS."
+            "ERROR: the model ran out of tokens before finishing the brief "
+            f"(retried up to {result['budget']} tokens). Raise BRIEF_MAX_TOKENS."
         )
 
     if not brief_text:

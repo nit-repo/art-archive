@@ -12,9 +12,20 @@ on:
     # trigger entirely and only run manually via workflow_dispatch.
     - cron: "0 9 * * *"
 
+# Needed for the final step to commit results back into the repo.
+permissions:
+  contents: write
+
+# Never let a manual run and the nightly cron push over each other.
+concurrency:
+  group: research-pipeline
+  cancel-in-progress: false
+
 jobs:
   research:
     runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: scripts
     steps:
       - name: Check out repo
         uses: actions/checkout@v4
@@ -29,41 +40,77 @@ jobs:
 
       - name: Determine artwork name
         id: pick
+        env:
+          # Passed through the environment, never interpolated into the shell,
+          # so an artwork name cannot inject commands.
+          INPUT_ARTWORK: ${{ github.event.inputs.artwork_name }}
         run: |
-          if [ -n "${{ github.event.inputs.artwork_name }}" ]; then
-            echo "artwork=${{ github.event.inputs.artwork_name }}" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          if [ -n "${INPUT_ARTWORK:-}" ]; then
+            ARTWORK="$INPUT_ARTWORK"
           else
-            # Pull the first row from queue/queue.csv that isn't marked done
-            ARTWORK=$(python - <<'EOF'
-          import csv
-          with open("queue/queue.csv") as f:
-              reader = csv.DictReader(f)
-              for row in reader:
-                  if row.get("status", "").strip().lower() != "done":
-                      print(row["artwork_name"])
-                      break
-          EOF
-          )
-            echo "artwork=$ARTWORK" >> "$GITHUB_OUTPUT"
+            ARTWORK="$(python scripts/queue_manager.py next)"
           fi
+          if [ -z "$ARTWORK" ]; then
+            echo "::error::No artwork to research — queue is empty and no name was supplied."
+            exit 1
+          fi
+          echo "Selected artwork: $ARTWORK"
+          {
+            echo "artwork<<ARTWORK_EOF"
+            echo "$ARTWORK"
+            echo "ARTWORK_EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Run Retriever
-        run: python scripts/retriever.py "${{ steps.pick.outputs.artwork }}"
+        env:
+          ARTWORK: ${{ steps.pick.outputs.artwork }}
+        run: python scripts/retriever.py "$ARTWORK"
 
       - name: Run Researcher
         env:
+          ARTWORK: ${{ steps.pick.outputs.artwork }}
           NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
-        run: python scripts/researcher.py "${{ steps.pick.outputs.artwork }}"
+        run: python scripts/researcher.py "$ARTWORK"
+
+      - name: Write reel content brief
+        env:
+          ARTWORK: ${{ steps.pick.outputs.artwork }}
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+        run: python scripts/brief_writer.py "$ARTWORK"
 
       - name: Notify Slack
         env:
+          ARTWORK: ${{ steps.pick.outputs.artwork }}
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-        run: python scripts/notify_slack.py "${{ steps.pick.outputs.artwork }}"
+        run: python scripts/notify_slack.py "$ARTWORK"
+
+      - name: Mark artwork done in the queue
+        env:
+          ARTWORK: ${{ steps.pick.outputs.artwork }}
+        run: python scripts/queue_manager.py done "$ARTWORK"
 
       - name: Commit results back to repo
+        env:
+          ARTWORK: ${{ steps.pick.outputs.artwork }}
         run: |
+          set -euo pipefail
           git config user.name "art-archive-bot"
           git config user.email "actions@github.com"
-          git add archive/
-          git diff --staged --quiet || git commit -m "Research pipeline: ${{ steps.pick.outputs.artwork }}"
-          git push
+          git add archive/ queue/queue.csv
+          if git diff --staged --quiet; then
+            echo "Nothing to commit."
+            exit 0
+          fi
+          git commit -m "Research pipeline: $ARTWORK"
+          # Rebase onto anything pushed while this run was working.
+          for attempt in 1 2 3; do
+            if git pull --rebase origin "${GITHUB_REF_NAME}" && git push origin "HEAD:${GITHUB_REF_NAME}"; then
+              echo "Pushed on attempt $attempt."
+              exit 0
+            fi
+            echo "Push attempt $attempt failed; retrying..."
+            sleep $((attempt * 4))
+          done
+          echo "::error::Failed to push results after 3 attempts."
+          exit 1

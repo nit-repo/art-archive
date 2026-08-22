@@ -1,0 +1,32 @@
+{
+  "artwork_query": "Mérode Altarpiece",
+  "retrieved_at": "2026-08-22T12:37:11.256370+00:00",
+  "sources": [
+    {
+      "source_id": "wikidata_001",
+      "origin": "Wikidata",
+      "url": "http://www.wikidata.org/entity/Q285392",
+      "raw_text": "Creator: http://www.wikidata.org/.well-known/genid/f1664f0be42080933843168150f70f32; Inception date: 1500-01-01T00:00:00Z; Medium: oil paint; Current location: The Cloisters; Movement: Early Netherlandish painting"
+    },
+    {
+      "source_id": "wikipedia_summary_001",
+      "origin": "Wikipedia (summary)",
+      "url": "https://en.wikipedia.org/wiki/M%C3%A9rode_Altarpiece",
+      "raw_text": "The Mérode Altarpiece is an oil on oak panel triptych, now in The Cloisters in New York. It is unsigned and undated, but attributed to Early Netherlandish painter Robert Campin and an assistant. The three panels represent, from left to right, the donors kneeling in prayer in a garden, the moment of the Annunciation to Mary, which is set in a contemporary, domestic setting, and Saint Joseph, a carpenter with the tools of his trade. The many elements of religious symbolism include the lily and fountain, and the Holy Spirit represented by the rays of light coming through from the central panel's left-hand window."
+    },
+    {
+      "source_id": "wikipedia_full_001",
+      "origin": "Wikipedia (full extract)",
+      "url": "https://en.wikipedia.org/wiki/Mérode_Altarpiece",
+      "raw_text": "The Mérode Altarpiece (or Annunciation Triptych) is an oil on oak panel triptych, now in The Cloisters in New York. It is unsigned and undated, but attributed to Early Netherlandish painter Robert Campin and an assistant. The three panels represent, from left to right, the donors kneeling in prayer in a garden, the moment of the Annunciation to Mary, which is set in a contemporary, domestic setting, and Saint Joseph, a carpenter with the tools of his trade. The many elements of religious symbolism include the lily and fountain (symbolising the purity of Mary), and the Holy Spirit represented by the rays of light coming through from the central panel's left-hand window.\nThe central panel was completed after 1422, likely between 1425 and 1428, it is thought by a member of Campin's workshop. An earlier version, now in Brussels, may be Campin's original panel. The outer wing panels are later additions by a workshop member, probably on request by the donor who sought to elevate the central panel to a triptych and place himself in the pictorial space. They contain views of the city of Liège, in today's Belgium.\nThe triptych is a founding and important work in the then emerging late Gothic..."
+    },
+    {
+      "source_id": "met_001",
+      "origin": "Met Open Access API",
+      "url": "https://www.metmuseum.org/art/collection/search/437490",
+      "raw_text": "Title: The Annunciation; Artist: Hans Memling; Date: ca. 1465–70; Medium: Oil on wood; Dimensions: 73 1/4 x 45 1/4 in. (186.1 x 114.9 cm); Department: European Paintings; Credit line: Gift of J. Pierpont Morgan, 1917; Image URL: https://images.metmuseum.org/CRDImages/ep/original/DP240360.jpg",
+      "image_url": "https://images.metmuseum.org/CRDImages/ep/original/DP240360.jpg"
+    }
+  ],
+  "status": "retrieved"
+}

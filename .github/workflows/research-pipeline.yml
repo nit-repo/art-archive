@@ -1,0 +1,69 @@
+name: Research Pipeline
+
+on:
+  workflow_dispatch:
+    inputs:
+      artwork_name:
+        description: "Artwork name to research (leave blank to pull next from queue.csv)"
+        required: false
+        default: ""
+  schedule:
+    # Runs once a day at 09:00 UTC. Adjust as you like, or remove this
+    # trigger entirely and only run manually via workflow_dispatch.
+    - cron: "0 9 * * *"
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Determine artwork name
+        id: pick
+        run: |
+          if [ -n "${{ github.event.inputs.artwork_name }}" ]; then
+            echo "artwork=${{ github.event.inputs.artwork_name }}" >> "$GITHUB_OUTPUT"
+          else
+            # Pull the first row from queue/queue.csv that isn't marked done
+            ARTWORK=$(python - <<'EOF'
+          import csv
+          with open("queue/queue.csv") as f:
+              reader = csv.DictReader(f)
+              for row in reader:
+                  if row.get("status", "").strip().lower() != "done":
+                      print(row["artwork_name"])
+                      break
+          EOF
+          )
+            echo "artwork=$ARTWORK" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run Retriever
+        run: python scripts/retriever.py "${{ steps.pick.outputs.artwork }}"
+
+      - name: Run Researcher
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+        run: python scripts/researcher.py "${{ steps.pick.outputs.artwork }}"
+
+      - name: Notify Slack
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: python scripts/notify_slack.py "${{ steps.pick.outputs.artwork }}"
+
+      - name: Commit results back to repo
+        run: |
+          git config user.name "art-archive-bot"
+          git config user.email "actions@github.com"
+          git add archive/
+          git diff --staged --quiet || git commit -m "Research pipeline: ${{ steps.pick.outputs.artwork }}"
+          git push

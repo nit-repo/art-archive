@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+.venv/
+.env
+projects/
+data/
+music/*
+!music/README.md
+fonts/*
+!fonts/README.md
+.pytest_cache/

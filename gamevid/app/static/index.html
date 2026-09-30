@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>gamevid</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <a href="#" class="brand">gamevid</a>
+  <span id="crumb"></span>
+</header>
+
+<main id="home" hidden>
+  <section class="card">
+    <h2>New video</h2>
+    <form id="new-project">
+      <label>Title <input name="title" required placeholder="Why the new patch ruined bleed builds"></label>
+      <label>Topic <input name="topic"></label>
+      <label>Your take (3–5 bullets, one per line)<textarea name="bullets" rows="5"></textarea></label>
+      <button>Create project</button>
+    </form>
+  </section>
+  <section class="card">
+    <h2>Projects</h2>
+    <ul id="project-list" class="plain"></ul>
+  </section>
+</main>
+
+<main id="project" hidden>
+  <nav class="stages" id="stage-bar"></nav>
+
+  <section class="card" id="sec-script">
+    <h2>1 · Script sections</h2>
+    <p class="hint">Until the script stage is built (step 2), type or paste sections here.
+      One take of narration is split into these sections automatically.</p>
+    <div id="section-editor"></div>
+    <button id="add-section" class="secondary">+ Section</button>
+    <button id="save-sections">Save sections</button>
+  </section>
+
+  <section class="card" id="sec-voice">
+    <h2>2 · Narration (one take)</h2>
+    <div class="row">
+      <input type="file" id="narration-file" accept="audio/*,video/*">
+      <button id="upload-narration">Upload</button>
+    </div>
+    <audio id="narration-player" controls hidden></audio>
+    <p id="narration-info" class="hint"></p>
+  </section>
+
+  <section class="card" id="sec-captions">
+    <h2>3 · Captions &amp; section timing</h2>
+    <p class="hint">Transcribes the narration with Whisper, then finds where each section starts.</p>
+    <button id="run-captions">Run captions</button>
+    <div id="captions-report"></div>
+  </section>
+
+  <section class="card" id="sec-footage">
+    <h2>4 · Footage</h2>
+    <div class="row">
+      <input type="file" id="footage-file" accept="video/*" multiple>
+      <button id="upload-footage">Upload</button>
+    </div>
+    <ul id="footage-list" class="plain"></ul>
+
+    <div id="marker" hidden>
+      <div class="marker-grid">
+        <div>
+          <video id="scrub" controls muted preload="auto"></video>
+          <div class="row">
+            <select id="scrub-source"></select>
+            <button id="mark-in" class="secondary" title="Shortcut: I">Set IN (I)</button>
+            <button id="mark-out" class="secondary" title="Shortcut: O">Set OUT (O)</button>
+            <span id="mark-range" class="mono"></span>
+          </div>
+          <div class="row">
+            <label>Add to section <select id="mark-section"></select></label>
+            <button id="add-clip">Add clip</button>
+          </div>
+        </div>
+        <div id="timeline-view"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="card" id="sec-assemble">
+    <h2>5 · Assemble</h2>
+    <div class="row wrap">
+      <label>Formats
+        <label class="inline"><input type="checkbox" name="fmt" value="vertical"> 9:16</label>
+        <label class="inline"><input type="checkbox" name="fmt" value="horizontal"> 16:9</label>
+      </label>
+      <label>9:16 fill
+        <select id="vertical-fill"><option value="crop">Crop</option><option value="blur">Blur fill</option></select>
+      </label>
+      <label>Music <select id="music-file"><option value="">(none)</option></select></label>
+      <label>Music level <input id="music-db" type="number" step="1" style="width:5em"> dB</label>
+      <label class="inline"><input type="checkbox" id="music-duck"> Duck under voice</label>
+    </div>
+    <details>
+      <summary>Caption style</summary>
+      <div class="row wrap" id="caption-style"></div>
+    </details>
+    <button id="save-settings" class="secondary">Save settings</button>
+    <button id="run-assemble">Render</button>
+    <div id="renders"></div>
+  </section>
+
+  <section class="card">
+    <h2>Jobs</h2>
+    <ul id="job-list" class="plain"></ul>
+  </section>
+</main>
+
+<div id="toast" hidden></div>
+<script src="app.js"></script>
+</body>
+</html>

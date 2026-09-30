@@ -4,8 +4,13 @@ A local, single-user tool for making faceless gaming videos. Python backend
 (FastAPI) plus a plain HTML frontend at `localhost:8000`, started with one
 command. No hosting and no auth. API keys live in `.env`.
 
-This folder is separate from the art-research pipeline in the rest of this repo
-and shares no code with it.
+The target machine is **Windows 10**: one-command start via `start.bat`, and ffmpeg from
+`winget install Gyan.FFmpeg`. Keep everything Windows-safe: no shell pipes,
+`pathlib` everywhere, and ffmpeg filter paths relative to the project dir or
+escaped with `ff.filter_path()`.
+
+Formats: 9:16 is the priority (Shorts and Reels); 16:9 long-form comes later.
+Both outputs are supported from day one.
 
 ## Inputs (from the user)
 
@@ -106,7 +111,7 @@ There is one folder per project, and each stage can be re-run on its own.
 4. UI polish
 5. Metadata and thumbnail step
 
-## Design decisions (proposed — pending user sign-off)
+## Design decisions (confirmed)
 
 ### Timing model
 
@@ -123,6 +128,10 @@ There is one folder per project, and each stage can be re-run on its own.
 - Every stage records a hash of its inputs. Editing upstream (for example,
   changing section 3's text) marks the downstream stages stale for that
   section only.
+- **Voice:** there is one take for the whole script. The captions stage
+  transcribes it, aligns it to the script, and derives each section's start
+  (the midpoint of the pause between sections). The user can nudge a
+  boundary manually; manual boundaries survive re-alignment.
 - Before any voice exists, durations are estimated at about 150 wpm and marked
   `estimated: true` in the UI.
 - Captions are word timestamps from each section's audio plus the section
@@ -132,15 +141,19 @@ There is one folder per project, and each stage can be re-run on its own.
 
 ### Clip matching (manual in/out)
 
+- **9:16 framing:** both modes are supported, chosen per project:
+  - `crop`, with a per-clip `crop_x` position
+  - `blur` fill
 - Browser scrubbing uses low-res H.264 proxies of the footage. Browsers can't
   play MKV/HEVC reliably, so the proxy is needed. The final render cuts from
   the originals.
 - A section can have several clips. The UI shows the marked duration against
   the required duration as a green/amber/red bar.
 - **Too long:** trim from the end.
-- **Too short:** the fill policy is TBD (see open questions). It must never
-  be silent. The render refuses to start while any section is red, unless
-  the user explicitly overrides.
+- **Too short:** the marked clips loop in order until the section is filled.
+  This is flagged as a warning in the UI and in the render output, never
+  silently.
+- **No clips:** black filler, with a warning.
 - Cuts are frame-accurate: the footage is re-encoded, not stream-copied.
 
 ### Platform policy
@@ -162,3 +175,19 @@ There is one folder per project, and each stage can be re-run on its own.
   the track and its licence for the description.
 - Per-game notes on the publisher's video and monetisation policy are
   checked at export.
+
+## Code map
+
+| File | Role |
+|---|---|
+| `app/models.py` | `project.json` schema (pydantic) |
+| `app/timeline.py` | `build_timeline()`: the only place times, frames and pieces are derived |
+| `app/align.py` | Whisper transcript ↔ script alignment and section starts |
+| `app/captions.py` | Transcription (local or API) and `.ass` generation |
+| `app/stages.py` | Stages, their input hashes (stale detection), render and cleanup |
+| `app/jobs.py` | Background queue: one worker, persisted, retries, resumes on restart |
+| `app/ff.py` | ffmpeg/ffprobe wrappers |
+| `app/main.py` | FastAPI routes |
+| `app/static/` | Plain HTML/JS UI |
+
+Run the tests with `python -m pytest`. The render test needs ffmpeg.
